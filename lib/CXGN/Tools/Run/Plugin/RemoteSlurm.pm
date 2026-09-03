@@ -19,29 +19,29 @@ sub _cluster_queue_jobs_count {
     return $cnt;
 }
 
-sub check_job { 
+sub check_job {
     my $self = shift;
-    
+
     IPC::Cmd::can_run('sbatch')
 	or croak "sbatch command not in path, cannot submit jobs to the cluster.  "
 	."Maybe you need to install the slurm package?";
-    
-    
+
+
     my $tempdir = $self->job_tempdir();
     $self->in_file()
 	and croak "in_file not supported by run_cluster";
     foreach my $acc ('out_file','err_file') {
 	my $file = $self->$acc;
 	$file = $self->$acc("$file"); #< stringify the argument
-	
+
 	print STDERR "TEMPDIR IS: $tempdir...\n";
 	croak "tempdir ".$self->job_tempdir()." is not on /export/shared or /export/prod, but needs to be for cluster jobs.  Do you need to set a different temp_base?\n"
 	    unless $self->cluster_accessible($tempdir);
-	
+
 	croak "filehandle or non-stringifying out_file, err_file, or in_file not supported by run_cluster"
 	    if $file =~ /^([\w:]+=)?[A-Z]+\(0x[\da-f]+\)$/;
 	#print "file was $file\n";
-	
+
 	unless($self->cluster_accessible($file)) {
 	    if(index($file,$tempdir) != -1) {
 		warn "tempdir ".$self->job_tempdir()." is not on /data/shared or /data/prod, but needs to be for cluster jobs.  Do you need to set a different temp_base?\n";
@@ -56,14 +56,14 @@ sub check_job {
 	$self->cluster_accessible($self->_working_dir)
 	    or croak "working directory '".$self->_working_dir."' is not a subdirectory of /data/shared or /data/prod, but should be in order to be accessible to the cluster nodes";
     }
-    
-    
+
+
     # if the cluster head node is currently is running more than
     # max_cluster_jobs jobs, don't overload it, block until the number
     # of jobs goes down.  prints a warning the first time in the run
     # that this happens
     $self->_wait_for_overloaded_cluster;
-    
+
     ###submit the job with qsub in the form of a bash script that contains a perl script
     #we do this so we can use CXGN::Tools::Run to write
     my $working_dir = $self->_working_dir_isset ? "working_dir => '".$self->_working_dir."'," : '';
@@ -72,7 +72,7 @@ sub check_job {
 
 sub run_job {
     my ( $self, @cmd ) = @_;
-    
+
     $self->check_job();
 
     print STDERR "Start run_job\n";
@@ -84,7 +84,7 @@ sub run_job {
 
     if (! $self->out_file()) { $self->out_file(File::Spec->catfile($self->job_tempdir(), 'out')); }
     if (! $self->err_file()) { $self->err_file(File::Spec->catfile($self->job_tempdir(), 'err')); }
-    
+
     print STDERR "OUTFILE IS ".$self->out_file().". Thanks.\n";
 
     my $cmd_string = "\#!/bin/bash\n\n";
@@ -95,11 +95,11 @@ sub run_job {
     my $command = join " ", @cmd;
     $cmd_string .= $command;
     $cmd_string .= " > ".$self->out_file();
-    $cmd_string .= " 2> ".$self->err_file();    
+    $cmd_string .= " 2> ".$self->err_file();
 
     my $cmd_temp_file = File::Spec->catfile($self->job_tempdir(), 'cmd');
     open(my $CTF, ">", $cmd_temp_file) || die "Can't open cmd temp file $cmd_temp_file for writing...\n";
-    
+
     print $CTF $cmd_string;
     close($CTF);
 
@@ -117,7 +117,7 @@ sub run_job {
   $submit_success or die "CXGN::Tools::Run: failed to submit cluster job, after $retry_count tries\n";
 
     $self->_die_if_error;
-    
+
     $self->store_job_data();
 
   print STDERR "End run_job\n";
@@ -127,7 +127,7 @@ sub run_job {
 
 sub _submit_cluster_job {
     my ($self, $cmd_temp_file) = @_;
-    
+
     print STDERR "Start _submit_cluster_job\n";
 
     # note that you can use a reference to a string as a filehandle, which is done here:
@@ -136,7 +136,7 @@ sub _submit_cluster_job {
 			     "sbatch",
 			    -o => '/dev/null', #$self->out_file(),
 			    -e => '/dev/null', #$self->err_file(),
-			     '--export=PATH,PERL5LIB',
+			     '--export=ALL',
 			     -N => 1, ### the number of nodes, not the name (that's in torque)
 			    #$self->_working_dir_isset ? ('--workdir' => $self->working_dir)
 			     #      : ()
@@ -163,7 +163,7 @@ sub _submit_cluster_job {
     }
     eval{
 	print STDERR "Running it...\n";
-	$cluster_job_id = `$submit_host_prefix $cluster_cmd --output $out --error $err`; 
+	$cluster_job_id = `$submit_host_prefix $cluster_cmd --output $out --error $err`;
 	print STDERR "Done...\n";
     };
 
@@ -171,9 +171,9 @@ sub _submit_cluster_job {
 	print STDERR "JOB SUBMISSION ERROR... RETURNED $cluster_job_id. \n";
 	die "Job submission error. $cluster_job_id";
     }
-    
+
     print STDERR "CLUSTER_JOB_ID = $cluster_job_id\n";
-    
+
     # test hook for testing a qsub failure, makes the test fail the first time
     # if( $ENV{CXGN_TOOLS_RUN_FORCE_QSUB_FAILURE} ) {
     #     $cluster_job_id = $ENV{CXGN_TOOLS_RUN_FORCE_QSUB_FAILURE};
@@ -182,7 +182,7 @@ sub _submit_cluster_job {
 
 
     print STDERR "COMMAND: $cluster_cmd  $cluster_job_id\n";
-    
+
     $self->_flush_qstat_cache;  #< force a qstat update
 
     #check that we got a sane job id
@@ -192,7 +192,7 @@ sub _submit_cluster_job {
         return;
     }
 
-    if ($cluster_job_id =~ /Submitted batch job (\d+)/) { 
+    if ($cluster_job_id =~ /Submitted batch job (\d+)/) {
 	$cluster_job_id = $1;
     }
 
@@ -201,9 +201,9 @@ sub _submit_cluster_job {
 
     $self->cluster_job_id($cluster_job_id);      #< remember our job id
 
-    
+
     print STDERR "End _submit_cluster_job\n";
-    
+
 
     return 1;
 }
@@ -265,7 +265,7 @@ sub _run_cluster_perl_test { print 'a string for use by the test suite ('.join('
 
 sub _qstat {
     my ($self) = @_;
-    
+
     my $jobs = $self->_global_qstat;
 
     my $status = $jobs->{$self->cluster_job_id()};
@@ -299,22 +299,22 @@ use constant MIN_QSTAT_WAIT => 3;
 	    if ($submit_host) {
 		$submit_host_prefix = "ssh $submit_host ";
 	    }
-	    
+
 	    my @output = `$submit_host_prefix squeue 2>&1`;
 
 	    print STDERR "OUTPUT : ".join("\n", @output);
-	    
+
 	    my $current_jobid;
-	    
+
 	    my $header = shift @output;
-	    
-	    foreach my $o (@output) { 
+
+	    foreach my $o (@output) {
 
 		my ($undef, $job_id, $partition, $name, $user, $st, $time, $nodes, $nodelist) = split /\s+/, $o;
 
-		if ($job_id) { 
+		if ($job_id) {
 		    $job_id =~ s/\s+(.*)/$1/;
-		    $jobstate->{$job_id} =  { 
+		    $jobstate->{$job_id} =  {
 			jobid => $job_id,
 			job_state => $st,
 			name => $name,
@@ -406,7 +406,7 @@ sub alive {
 
     my $jobid = $self->cluster_job_id();
     my $temp_dir = $self->job_tempdir();
-    
+
     print STDERR "Slurm alive()... JobID: $jobid\n";
 
     my $submit_host = $self->submit_host();
@@ -414,7 +414,7 @@ sub alive {
     if ($submit_host) {
 	$submit_host_prefix = "ssh $submit_host ";
     }
-    
+
     my $output = `$submit_host_prefix check_slurm_job.pl $jobid $temp_dir`;
 
     print STDERR "OUTPUT: $output\n";
@@ -427,10 +427,10 @@ sub alive {
     }
 
     # my $slurm = Slurm::new();
-    
+
     # my $job_info = $slurm->load_job($self->cluster_job_id());
     # my $current_job = $job_info->{job_array}->[0];
-    
+
     # $self->_check_nodes_states();
 
     # print STDERR "Check job state...\n";
@@ -581,7 +581,7 @@ sub out {
 #    return undef;
 }
 
-sub cancel { 
+sub cancel {
     my $self = shift;
 
     my $submit_host = $self->submit_host();
@@ -594,10 +594,10 @@ sub cancel {
     my @output = `$submit_host_prefix scancel $jobid`;
 }
 
-# sub serialize { 
+# sub serialize {
 #     my $self = shift;
 #     my $file = shift;
-    
+
 #     nstore($self, $file);
 
 # }
